@@ -22,10 +22,14 @@ launchctl print "gui/$UID_/com.mjg.whisperkit" 2>/dev/null | grep -q "state = ru
 launchctl print "gui/$UID_/com.mjg.whisper-transcode-proxy" 2>/dev/null | grep -q "state = running" && ok "transcode-proxy running" || no "transcode-proxy running"
 brew services list 2>/dev/null | grep -q "ollama.*started" && ok "Ollama started" || no "Ollama started"
 
-echo "--- CORS single-header (the bug that breaks processing) ---"
+echo "--- warm up the LLM (a cold Gemma load can take 30-60s) ---"
+curl -s -m240 "http://127.0.0.1:$OLLAMA_PORT/v1/chat/completions" -H "Content-Type: application/json" -d "{\"model\":\"$LLM_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ok\"}],\"stream\":false}" >/dev/null 2>&1 && ok "LLM responding" || no "LLM responding (model load timed out)"
+
+echo "--- CORS single-header (the bug that breaks processing) — via OPTIONS preflight ---"
 n=$(curl -s -i -X OPTIONS "http://127.0.0.1:$PROXY_PORT/v1/audio/transcriptions" -H "Origin: app://obsidian.md" 2>/dev/null | grep -ic "access-control-allow-origin")
 [ "$n" = 1 ] && ok "transcribe: exactly 1 Allow-Origin" || no "transcribe Allow-Origin count=$n (want 1)"
-n=$(curl -s -i -m20 "http://127.0.0.1:$OLLAMA_PORT/v1/chat/completions" -H "Origin: app://obsidian.md" -d "{\"model\":\"$LLM_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream\":false}" 2>/dev/null | grep -ic "access-control-allow-origin")
+# Preflight is instant (no model load) and is exactly what Electron does before the POST.
+n=$(curl -s -i -X OPTIONS "http://127.0.0.1:$OLLAMA_PORT/v1/chat/completions" -H "Origin: app://obsidian.md" -H "Access-Control-Request-Method: POST" 2>/dev/null | grep -ic "access-control-allow-origin")
 [ "$n" = 1 ] && ok "chat: exactly 1 Allow-Origin" || no "chat Allow-Origin count=$n (want 1)"
 
 echo "--- E2E transcription (real Opus webm, like the plugin) ---"
