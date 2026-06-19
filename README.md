@@ -65,3 +65,22 @@ proxy/whisper-transcode-proxy.py  # Opus→wav + CORS proxy in front of WhisperK
 obsidian/whisper-data.json.example# reference plugin config (only "local" placeholders, no secrets)
 healthcheck.sh                    # the end-to-end sanity check (`make check`)
 ```
+
+## Launch from your terminal (`.zshrc`)
+
+The three services already auto-start at login. For manual control, add this function to `~/.zshrc`:
+
+```zsh
+voicenotes() { make -C ~/voice-notes-pipeline "${@:-start}"; }
+```
+
+Then from anywhere:
+
+| Command | Does |
+|---|---|
+| `voicenotes` | start everything |
+| `voicenotes status` | service states + ports |
+| `voicenotes check` | full end-to-end sanity check |
+| `voicenotes restart` | reload all services |
+| `voicenotes logs` | tail logs |
+| `voicenotes stop` | stop services |
