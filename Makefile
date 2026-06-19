@@ -24,16 +24,26 @@ UID          := $(shell id -u)
 WK_PLIST     := $(LA)/com.mjg.whisperkit.plist
 PX_PLIST     := $(LA)/com.mjg.whisper-transcode-proxy.plist
 
-.PHONY: all help install models proxy plists configure start stop restart status logs check uninstall
+.PHONY: all help install plugin models proxy plists configure start stop restart status logs check uninstall
 
-all: install models proxy plists configure restart check ## full setup from scratch
+all: install plugin models proxy plists configure restart check ## full setup from scratch (Homebrew + Obsidian must already be installed)
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
 
 install: ## brew deps (whisperkit-cli, ollama, ffmpeg, uv) + start ollama
+	@command -v brew >/dev/null || { echo 'Homebrew not found. Install it first:'; echo '  /bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; exit 1; }
 	brew install whisperkit-cli ollama ffmpeg uv
 	brew services start ollama
+
+plugin: ## download + enable the Obsidian "Whisper" community plugin in the vault
+	@test -d "$(VAULT)/.obsidian" || { echo "ERROR: $(VAULT) is not an Obsidian vault (no .obsidian/)"; exit 1; }
+	@mkdir -p "$(PLUGIN)"
+	@for f in manifest.json main.js styles.css; do \
+	  curl -fsSL "https://github.com/nikdanilov/whisper-obsidian-plugin/releases/latest/download/$$f" -o "$(PLUGIN)/$$f" \
+	    && echo "  got $$f" || echo "  WARN: could not download $$f (install the plugin manually in Obsidian)"; \
+	done
+	@python3 -c "import json,os; p='$(VAULT)/.obsidian/community-plugins.json'; a=json.load(open(p)) if os.path.exists(p) else []; a=a if 'whisper' in a else a+['whisper']; json.dump(a,open(p,'w'),indent=2); print('  enabled whisper in community-plugins.json')"
 
 models: ## pull the LLM + WhisperKit model into a non-TCC cache
 	ollama pull $(LLM_MODEL)

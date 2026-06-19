@@ -22,7 +22,28 @@ Three subtleties this setup solves (all caught during a real bring-up):
 
 > **Why no docker-compose?** WhisperKit needs native macOS **CoreML/Metal** — it can't run in a Linux container with GPU access. launchd + `brew services` are the correct primitives on macOS, driven here by the `Makefile`.
 
-## Quick start
+## Cold start (fresh Mac, step by step)
+
+Prereqs you supply: **macOS 14+ on Apple Silicon**, and **Obsidian** with a vault.
+
+```bash
+# 1. Homebrew (skip if you have it)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Obsidian (skip if installed) + open/create your vault once
+brew install --cask obsidian
+
+# 3. Clone this repo and run the whole setup against your vault
+git clone https://github.com/jacky-micro1/voice-notes-pipeline.git ~/voice-notes-pipeline
+cd ~/voice-notes-pipeline
+make all VAULT=/absolute/path/to/your/vault
+```
+
+`make all` then does everything: installs `whisperkit-cli` / `ollama` / `ffmpeg` / `uv`, **downloads the WhisperKit model + pulls Gemma (`gemma4:e4b-mlx`, ~9 GB — first run is slow)**, installs + enables the Obsidian Whisper plugin, sets up the transcode proxy, writes the launchd auto-start agents, points the plugin at the local stack, starts everything, and runs the sanity check.
+
+**Then in Obsidian (the only manual bits):** Settings → Community plugins → enable **Whisper** if it shows disabled, then record once and **Allow** the macOS Microphone prompt.
+
+## Quick start (already have Homebrew + Obsidian + the plugin)
 
 ```bash
 make all                      # install + models + proxy + launchd + configure + start + check
