@@ -1,0 +1,5 @@
+*.log
+*.wav
+*.webm
+*.aiff
+.DS_Store
