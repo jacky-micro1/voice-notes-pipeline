@@ -35,10 +35,22 @@ ffmpeg -y -i "$TMP/a.wav" -c:a libopus "$TMP/a.webm" 2>/dev/null
 TX=$(curl -s -m30 "http://127.0.0.1:$PROXY_PORT/v1/audio/transcriptions" -H "Origin: app://obsidian.md" -F file=@"$TMP/a.webm" -F model=whisper-1 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print((''.join(s['text'] for s in d.get('segments',[])) or d.get('text','')).strip())" 2>/dev/null)
 [ -n "$TX" ] && ok "webm transcribed: '$TX'" || no "webm transcription"
 
-echo "--- E2E post-processing ---"
-OUT=$(curl -s -m60 "http://127.0.0.1:$OLLAMA_PORT/v1/chat/completions" -H "Origin: app://obsidian.md" -H "Content-Type: application/json" -d "$(python3 -c "import json;print(json.dumps({'model':'$LLM_MODEL','stream':False,'messages':[{'role':'system','content':'Format into ## Summary, ## Tasks (- [ ] checkboxes), ## Notes, ## Transcript.'},{'role':'user','content':'''$TX'''}]}))")" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
-echo "$OUT" | grep -q "## Summary" && ok "emits ## Summary" || no "## Summary"
-echo "$OUT" | grep -qE "## Tasks|- \[ \]" && ok "emits ## Tasks / checkbox" || no "## Tasks"
+echo "--- E2E post-processing (uses the plugin's real system prompt) ---"
+# Build the payload in python: read the actual postProcessingPrompt from data.json
+# (the plugin's real instruction), pass the transcript via env to avoid shell quoting.
+PAYLOAD=$(TX="$TX" DATA="$DATA" LLM_MODEL="$LLM_MODEL" python3 -c '
+import json, os
+sysprompt = "You format raw voice-note transcripts into clean Obsidian markdown. Output only valid GFM. Produce, in order: ## Summary (1-2 sentences). ## Tasks (action items as \"- [ ] \" checkboxes; omit if none). ## Notes (bullets). ## Transcript (verbatim)."
+try:
+    d = json.load(open(os.environ["DATA"]))
+    if d.get("postProcessingPrompt"): sysprompt = d["postProcessingPrompt"]
+except Exception: pass
+print(json.dumps({"model": os.environ["LLM_MODEL"], "stream": False,
+    "messages": [{"role": "system", "content": sysprompt}, {"role": "user", "content": os.environ["TX"]}]}))')
+OUT=$(curl -s -m90 "http://127.0.0.1:$OLLAMA_PORT/v1/chat/completions" -H "Origin: app://obsidian.md" -H "Content-Type: application/json" -d "$PAYLOAD" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null)
+echo "$OUT" | grep -qiE "^#+ *summary" && ok "emits Summary section" || no "Summary section"
+echo "$OUT" | grep -qE "## Tasks|- \[ \]" && ok "emits Tasks / checkbox" || no "Tasks section"
+echo "$OUT" | grep -qiE "^#+ *transcript" && ok "emits Transcript section" || no "Transcript section"
 
 echo "--- edge: silent audio is graceful ---"
 ffmpeg -y -f lavfi -i anullsrc=r=16000:cl=mono -t 1 -c:a libopus "$TMP/s.webm" 2>/dev/null
