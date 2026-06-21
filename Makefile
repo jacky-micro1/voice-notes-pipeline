@@ -24,7 +24,7 @@ UID          := $(shell id -u)
 WK_PLIST     := $(LA)/com.mjg.whisperkit.plist
 PX_PLIST     := $(LA)/com.mjg.whisper-transcode-proxy.plist
 
-.PHONY: all help install plugin models proxy plists configure start stop restart status logs check uninstall
+.PHONY: all help install plugin models proxy plists configure start stop restart status logs check test uninstall
 
 all: install plugin models proxy plists configure restart check ## full setup from scratch (Homebrew + Obsidian must already be installed)
 
@@ -55,10 +55,14 @@ models: ## pull the LLM + WhisperKit model into a non-TCC cache
 	 if [ -n "$$SRC" ]; then cp -R "$$SRC" "$(MODEL_CACHE)/argmaxinc/whisperkit-coreml/"; echo "copied model -> $(MODEL_CACHE)"; \
 	 else echo "WARN: WhisperKit model not found under ~/Documents/huggingface — run a manual transcribe once"; fi
 
-proxy: ## install the Opus->wav + CORS transcode proxy
+proxy: ## install the Opus->wav + CORS transcode proxy (+ long-audio chunking) and the map-reduce summarizer
 	@mkdir -p "$(BIN)"
 	cp proxy/whisper-transcode-proxy.py "$(BIN)/"
+	cp proxy/summarize-mapreduce.py "$(BIN)/"
 	-uv run --with aiohttp python -c "import aiohttp" >/dev/null 2>&1
+
+test: ## run the chunking/stitching unit tests (no services needed)
+	uv run python proxy/test_chunking.py
 
 plists: ## write + load the launchd agents (auto-start at login)
 	@printf '%s\n' \

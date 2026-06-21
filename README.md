@@ -82,10 +82,52 @@ The plugin's two URLs (Obsidian → Settings → Whisper):
 
 ```
 Makefile                          # install / setup / run / check — the source of truth
-proxy/whisper-transcode-proxy.py  # Opus→wav + CORS proxy in front of WhisperKit
+proxy/whisper-transcode-proxy.py  # Opus→wav + CORS proxy in front of WhisperKit (+ long-audio chunking)
+proxy/summarize-mapreduce.py      # map-reduce post-processor for long transcripts (optional CLI)
+proxy/test_chunking.py            # unit tests for window planning + transcript stitching
 obsidian/whisper-data.json.example# reference plugin config (only "local" placeholders, no secrets)
 healthcheck.sh                    # the end-to-end sanity check (`make check`)
 ```
+
+## Long meetings (chunking)
+
+A multi-hour recording sent to WhisperKit in **one** `serve` request loads the whole
+clip into CoreML at once — it blows up memory, times out, and the transcription
+degrades. Likewise, the plugin posts the **entire** transcript as one message to
+Gemma; past the model's context window the tail is silently dropped. Two additive
+fixes handle arbitrarily long audio:
+
+**Transcription — automatic, transparent.** The transcode proxy probes the
+transcoded wav's duration. Under `CHUNK_THRESHOLD_S` (default 600s) it takes the
+original single-call path, byte-for-byte unchanged. Over it, the proxy splits the
+audio into overlapping windows — snapping cut points to silence (ffmpeg
+`silencedetect`) so they land in pauses, falling back to fixed windows — transcribes
+each window, then **stitches** the verbose-JSON segments: timestamps are offset by
+each window's start, overlap-duplicated segments are dropped, and ids are
+renumbered. The plugin sees one normal response and needs no changes. Tunable via
+env vars on the proxy launchd agent:
+
+| Var | Default | Meaning |
+|---|---|---|
+| `CHUNK_THRESHOLD_S` | `600` | transcribe in one call below this duration |
+| `CHUNK_WINDOW_S` | `300` | target window length when chunking |
+| `CHUNK_OVERLAP_S` | `10` | overlap between adjacent windows |
+| `CHUNK_SILENCE_DB` | `-30` | `silencedetect` noise floor (dB) |
+| `CHUNK_SILENCE_MIN_S` | `0.5` | min silence length to split on (s) |
+
+**Summary — optional map-reduce CLI.** Because post-processing goes plugin→Ollama
+directly (not through repo code), long-transcript summarization is handled by a
+standalone helper that reuses the same model, endpoint and prompt:
+
+```bash
+# per-chunk partial notes -> combined ## Summary / ## Tasks / ## Notes, then the
+# full verbatim ## Transcript (never truncated). Short transcripts -> single call.
+uv run python proxy/summarize-mapreduce.py transcript.txt
+# tune: SUMMARY_CHUNK_CHARS (default 8000), OLLAMA_URL, LLM_MODEL
+```
+
+Run the chunking unit tests (no services needed) with
+`uv run python proxy/test_chunking.py`.
 
 ## Launch from your terminal (`.zshrc`)
 
